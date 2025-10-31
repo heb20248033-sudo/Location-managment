@@ -7,11 +7,8 @@ import com.location.management.exception.InvalidRequestException;
 import com.location.management.exception.ResourceNotFoundException;
 import com.location.management.repository.AreaRepository;
 import com.location.management.repository.CityRepository;
+import com.location.management.util.GeometryUtil;
 import lombok.RequiredArgsConstructor;
-import org.locationtech.jts.geom.Coordinate;
-import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.Point;
-import org.locationtech.jts.geom.PrecisionModel;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
@@ -29,7 +26,7 @@ public class AreaService {
 
     private final AreaRepository areaRepository;
     private final CityRepository cityRepository;
-    private final GeometryFactory geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
+    private final GeometryUtil geometryUtil;
 
     @Cacheable(value = "areas", key = "#tenantId + '_' + #pageable.pageNumber")
     public Page<AreaDTO> getAllAreas(String tenantId, Pageable pageable) {
@@ -54,8 +51,6 @@ public class AreaService {
     @Transactional
     @CacheEvict(value = "areas", allEntries = true)
     public AreaDTO createArea(AreaDTO areaDTO, String tenantId) {
-        validateCoordinates(areaDTO.getLatitude(), areaDTO.getLongitude());
-
         City city = cityRepository.findByIdAndTenantId(areaDTO.getCityId(), tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("City not found with id: " + areaDTO.getCityId()));
 
@@ -69,7 +64,7 @@ public class AreaService {
         Area area = Area.builder()
                 .name(areaDTO.getName())
                 .code(areaDTO.getCode())
-                .coordinates(createPoint(areaDTO.getLatitude(), areaDTO.getLongitude()))
+                .coordinates(geometryUtil.createPoint(areaDTO.getLatitude(), areaDTO.getLongitude()))
                 .city(city)
                 .postalCode(areaDTO.getPostalCode())
                 .build();
@@ -85,8 +80,6 @@ public class AreaService {
         Area area = areaRepository.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Area not found with id: " + id));
 
-        validateCoordinates(areaDTO.getLatitude(), areaDTO.getLongitude());
-
         City city = cityRepository.findByIdAndTenantId(areaDTO.getCityId(), tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("City not found with id: " + areaDTO.getCityId()));
 
@@ -99,7 +92,7 @@ public class AreaService {
 
         area.setName(areaDTO.getName());
         area.setCode(areaDTO.getCode());
-        area.setCoordinates(createPoint(areaDTO.getLatitude(), areaDTO.getLongitude()));
+        area.setCoordinates(geometryUtil.createPoint(areaDTO.getLatitude(), areaDTO.getLongitude()));
         area.setCity(city);
         area.setPostalCode(areaDTO.getPostalCode());
 
@@ -116,7 +109,7 @@ public class AreaService {
     }
 
     public List<AreaDTO> getNearbyAreas(Double latitude, Double longitude, Double radiusKm, String tenantId) {
-        validateCoordinates(latitude, longitude);
+        geometryUtil.validateCoordinates(latitude, longitude);
         Double radiusMeters = radiusKm * 1000;
         return areaRepository.findNearbyAreas(latitude, longitude, radiusMeters, tenantId)
                 .stream()
@@ -135,21 +128,5 @@ public class AreaService {
                 .cityName(area.getCity().getName())
                 .postalCode(area.getPostalCode())
                 .build();
-    }
-
-    private Point createPoint(Double latitude, Double longitude) {
-        return geometryFactory.createPoint(new Coordinate(longitude, latitude));
-    }
-
-    private void validateCoordinates(Double latitude, Double longitude) {
-        if (latitude == null || longitude == null) {
-            throw new InvalidRequestException("Latitude and longitude are required");
-        }
-        if (latitude < -90 || latitude > 90) {
-            throw new InvalidRequestException("Latitude must be between -90 and 90");
-        }
-        if (longitude < -180 || longitude > 180) {
-            throw new InvalidRequestException("Longitude must be between -180 and 180");
-        }
     }
 }

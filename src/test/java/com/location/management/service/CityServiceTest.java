@@ -32,6 +32,9 @@ class CityServiceTest {
     @Mock
     private CityRepository cityRepository;
 
+    @Mock
+    private com.location.management.util.GeometryUtil geometryUtil;
+
     @InjectMocks
     private CityService cityService;
 
@@ -103,8 +106,10 @@ class CityServiceTest {
 
     @Test
     void createCity_WithValidData_ShouldCreateCity() {
+        Point coordinates = geometryFactory.createPoint(new Coordinate(-74.0060, 40.7128));
         when(cityRepository.findByCodeAndTenantId(anyString(), eq(tenantId)))
                 .thenReturn(Optional.empty());
+        when(geometryUtil.createPoint(anyDouble(), anyDouble())).thenReturn(coordinates);
         when(cityRepository.save(any(City.class))).thenReturn(testCity);
 
         CityDTO result = cityService.createCity(testCityDTO, tenantId);
@@ -117,6 +122,8 @@ class CityServiceTest {
     @Test
     void createCity_WithInvalidLatitude_ShouldThrowException() {
         testCityDTO.setLatitude(100.0);
+        doThrow(new InvalidRequestException("Latitude must be between -90 and 90"))
+                .when(geometryUtil).createPoint(anyDouble(), anyDouble());
 
         assertThrows(InvalidRequestException.class, 
                 () -> cityService.createCity(testCityDTO, tenantId));
@@ -125,6 +132,8 @@ class CityServiceTest {
     @Test
     void createCity_WithInvalidLongitude_ShouldThrowException() {
         testCityDTO.setLongitude(200.0);
+        doThrow(new InvalidRequestException("Longitude must be between -180 and 180"))
+                .when(geometryUtil).createPoint(anyDouble(), anyDouble());
 
         assertThrows(InvalidRequestException.class, 
                 () -> cityService.createCity(testCityDTO, tenantId));

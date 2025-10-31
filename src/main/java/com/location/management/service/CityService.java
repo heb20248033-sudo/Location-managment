@@ -5,11 +5,8 @@ import com.location.management.entity.City;
 import com.location.management.exception.InvalidRequestException;
 import com.location.management.exception.ResourceNotFoundException;
 import com.location.management.repository.CityRepository;
+import com.location.management.util.GeometryUtil;
 import lombok.RequiredArgsConstructor;
-import org.locationtech.jts.geom.Coordinate;
-import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.Point;
-import org.locationtech.jts.geom.PrecisionModel;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
@@ -26,7 +23,7 @@ import java.util.stream.Collectors;
 public class CityService {
 
     private final CityRepository cityRepository;
-    private final GeometryFactory geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
+    private final GeometryUtil geometryUtil;
 
     @Cacheable(value = "cities", key = "#tenantId + '_' + #pageable.pageNumber")
     public Page<CityDTO> getAllCities(String tenantId, Pageable pageable) {
@@ -44,8 +41,6 @@ public class CityService {
     @Transactional
     @CacheEvict(value = "cities", allEntries = true)
     public CityDTO createCity(CityDTO cityDTO, String tenantId) {
-        validateCoordinates(cityDTO.getLatitude(), cityDTO.getLongitude());
-        
         if (cityDTO.getCode() != null) {
             cityRepository.findByCodeAndTenantId(cityDTO.getCode(), tenantId)
                     .ifPresent(c -> {
@@ -56,7 +51,7 @@ public class CityService {
         City city = City.builder()
                 .name(cityDTO.getName())
                 .code(cityDTO.getCode())
-                .coordinates(createPoint(cityDTO.getLatitude(), cityDTO.getLongitude()))
+                .coordinates(geometryUtil.createPoint(cityDTO.getLatitude(), cityDTO.getLongitude()))
                 .country(cityDTO.getCountry())
                 .population(cityDTO.getPopulation())
                 .build();
@@ -72,8 +67,6 @@ public class CityService {
         City city = cityRepository.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("City not found with id: " + id));
 
-        validateCoordinates(cityDTO.getLatitude(), cityDTO.getLongitude());
-
         if (cityDTO.getCode() != null && !cityDTO.getCode().equals(city.getCode())) {
             cityRepository.findByCodeAndTenantId(cityDTO.getCode(), tenantId)
                     .ifPresent(c -> {
@@ -83,7 +76,7 @@ public class CityService {
 
         city.setName(cityDTO.getName());
         city.setCode(cityDTO.getCode());
-        city.setCoordinates(createPoint(cityDTO.getLatitude(), cityDTO.getLongitude()));
+        city.setCoordinates(geometryUtil.createPoint(cityDTO.getLatitude(), cityDTO.getLongitude()));
         city.setCountry(cityDTO.getCountry());
         city.setPopulation(cityDTO.getPopulation());
 
@@ -100,7 +93,7 @@ public class CityService {
     }
 
     public List<CityDTO> getNearbyCities(Double latitude, Double longitude, Double radiusKm, String tenantId) {
-        validateCoordinates(latitude, longitude);
+        geometryUtil.validateCoordinates(latitude, longitude);
         Double radiusMeters = radiusKm * 1000;
         return cityRepository.findNearbyCities(latitude, longitude, radiusMeters, tenantId)
                 .stream()
@@ -118,21 +111,5 @@ public class CityService {
                 .country(city.getCountry())
                 .population(city.getPopulation())
                 .build();
-    }
-
-    private Point createPoint(Double latitude, Double longitude) {
-        return geometryFactory.createPoint(new Coordinate(longitude, latitude));
-    }
-
-    private void validateCoordinates(Double latitude, Double longitude) {
-        if (latitude == null || longitude == null) {
-            throw new InvalidRequestException("Latitude and longitude are required");
-        }
-        if (latitude < -90 || latitude > 90) {
-            throw new InvalidRequestException("Latitude must be between -90 and 90");
-        }
-        if (longitude < -180 || longitude > 180) {
-            throw new InvalidRequestException("Longitude must be between -180 and 180");
-        }
     }
 }

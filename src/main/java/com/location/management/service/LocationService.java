@@ -8,11 +8,8 @@ import com.location.management.exception.InvalidRequestException;
 import com.location.management.exception.ResourceNotFoundException;
 import com.location.management.repository.AreaRepository;
 import com.location.management.repository.LocationRepository;
+import com.location.management.util.GeometryUtil;
 import lombok.RequiredArgsConstructor;
-import org.locationtech.jts.geom.Coordinate;
-import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.Point;
-import org.locationtech.jts.geom.PrecisionModel;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
@@ -30,7 +27,7 @@ public class LocationService {
 
     private final LocationRepository locationRepository;
     private final AreaRepository areaRepository;
-    private final GeometryFactory geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
+    private final GeometryUtil geometryUtil;
 
     @Cacheable(value = "locations", key = "#tenantId + '_' + #pageable.pageNumber")
     public Page<LocationDTO> getAllLocations(String tenantId, Pageable pageable) {
@@ -69,8 +66,6 @@ public class LocationService {
     @Transactional
     @CacheEvict(value = "locations", allEntries = true)
     public LocationDTO createLocation(LocationDTO locationDTO, String tenantId) {
-        validateCoordinates(locationDTO.getLatitude(), locationDTO.getLongitude());
-
         Area area = areaRepository.findByIdAndTenantId(locationDTO.getAreaId(), tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Area not found with id: " + locationDTO.getAreaId()));
 
@@ -85,7 +80,7 @@ public class LocationService {
                 .name(locationDTO.getName())
                 .code(locationDTO.getCode())
                 .locationType(locationDTO.getLocationType())
-                .coordinates(createPoint(locationDTO.getLatitude(), locationDTO.getLongitude()))
+                .coordinates(geometryUtil.createPoint(locationDTO.getLatitude(), locationDTO.getLongitude()))
                 .area(area)
                 .addressLine1(locationDTO.getAddressLine1())
                 .addressLine2(locationDTO.getAddressLine2())
@@ -108,8 +103,6 @@ public class LocationService {
         Location location = locationRepository.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Location not found with id: " + id));
 
-        validateCoordinates(locationDTO.getLatitude(), locationDTO.getLongitude());
-
         Area area = areaRepository.findByIdAndTenantId(locationDTO.getAreaId(), tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Area not found with id: " + locationDTO.getAreaId()));
 
@@ -123,7 +116,7 @@ public class LocationService {
         location.setName(locationDTO.getName());
         location.setCode(locationDTO.getCode());
         location.setLocationType(locationDTO.getLocationType());
-        location.setCoordinates(createPoint(locationDTO.getLatitude(), locationDTO.getLongitude()));
+        location.setCoordinates(geometryUtil.createPoint(locationDTO.getLatitude(), locationDTO.getLongitude()));
         location.setArea(area);
         location.setAddressLine1(locationDTO.getAddressLine1());
         location.setAddressLine2(locationDTO.getAddressLine2());
@@ -147,7 +140,7 @@ public class LocationService {
     }
 
     public List<LocationDTO> getNearbyLocations(Double latitude, Double longitude, Double radiusKm, String tenantId) {
-        validateCoordinates(latitude, longitude);
+        geometryUtil.validateCoordinates(latitude, longitude);
         Double radiusMeters = radiusKm * 1000;
         return locationRepository.findNearbyLocations(latitude, longitude, radiusMeters, tenantId)
                 .stream()
@@ -158,7 +151,7 @@ public class LocationService {
     public List<LocationDTO> getNearestLocationsByType(Double latitude, Double longitude, 
                                                         Double radiusKm, LocationType type, 
                                                         Integer limit, String tenantId) {
-        validateCoordinates(latitude, longitude);
+        geometryUtil.validateCoordinates(latitude, longitude);
         Double radiusMeters = radiusKm * 1000;
         return locationRepository.findNearestLocationsByType(
                 latitude, longitude, radiusMeters, type.name(), tenantId, limit)
@@ -187,21 +180,5 @@ public class LocationService {
                 .active(location.getActive())
                 .description(location.getDescription())
                 .build();
-    }
-
-    private Point createPoint(Double latitude, Double longitude) {
-        return geometryFactory.createPoint(new Coordinate(longitude, latitude));
-    }
-
-    private void validateCoordinates(Double latitude, Double longitude) {
-        if (latitude == null || longitude == null) {
-            throw new InvalidRequestException("Latitude and longitude are required");
-        }
-        if (latitude < -90 || latitude > 90) {
-            throw new InvalidRequestException("Latitude must be between -90 and 90");
-        }
-        if (longitude < -180 || longitude > 180) {
-            throw new InvalidRequestException("Longitude must be between -180 and 180");
-        }
     }
 }
